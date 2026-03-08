@@ -1,0 +1,1618 @@
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Capybara Quest</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+#game-container { width: 100vw; height: 100vh; }
+canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="game-container"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+<script>
+// =============================================================
+// ui.js – Prikaz vmesnika (HUD): zdravje, oklep, orožje, čas
+// =============================================================
+
+class UIManager {
+    constructor(scene) {
+        this.scene = scene;
+        this.barWidth = 120;
+        this.barHeight = 14;
+        this.padding = 10;
+        this.elements = {};
+        this.create();
+    }
+
+    create() {
+        const s = this.scene;
+        const cam = s.cameras.main;
+        const W = cam.width;
+
+        // ── Ozadje HUD ──────────────────────────────────────────
+        this.hudBg = s.add.rectangle(0, 0, W, 88, 0x000000, 0.55)
+            .setOrigin(0, 0).setScrollFactor(0).setDepth(100);
+
+        // ── ZDRAVJE ─────────────────────────────────────────────
+        this.createLabel(12, 8, '❤️ Zdravje', 0xff6b6b);
+        this.hpBg  = this.createBarBg(12, 26);
+        this.hpBar = this.createBar(12, 26, 0xe84393);
+        this.hpTxt = this.createText(140, 26, '100');
+
+        // ── OKLEP ────────────────────────────────────────────────
+        this.createLabel(12, 44, '🛡️ Oklep', 0x74b9ff);
+        this.arBg  = this.createBarBg(12, 62);
+        this.arBar = this.createBar(12, 62, 0x0984e3);
+        this.arTxt = this.createText(140, 62, '0');
+
+        // ── OROŽJE ──────────────────────────────────────────────
+        this.createLabel(W / 2 - 60, 8, '⚔️ Orožje', 0xfdcb6e);
+        this.wpTxt = s.add.text(W / 2 - 60, 26, 'Nivo 1', {
+            fontSize: '15px', color: '#fdcb6e', fontStyle: 'bold'
+        }).setScrollFactor(0).setDepth(101);
+
+        // ── NIVO ─────────────────────────────────────────────────
+        this.createLabel(W / 2 - 60, 44, '🗺️ Nivo', 0xa29bfe);
+        this.lvlTxt = s.add.text(W / 2 - 60, 62, '1 / 3', {
+            fontSize: '15px', color: '#a29bfe', fontStyle: 'bold'
+        }).setScrollFactor(0).setDepth(101);
+
+        // ── TIMER ────────────────────────────────────────────────
+        this.createLabel(W - 110, 8, '⏱️ Čas', 0x55efc4);
+        this.timeTxt = s.add.text(W - 110, 26, '00:00', {
+            fontSize: '18px', color: '#55efc4', fontStyle: 'bold'
+        }).setScrollFactor(0).setDepth(101);
+
+        // ── SPOROČILA ────────────────────────────────────────────
+        this.msgTxt = s.add.text(W / 2, 110, '', {
+            fontSize: '20px', color: '#f9ca24', fontStyle: 'bold',
+            stroke: '#000', strokeThickness: 4, align: 'center'
+        }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(102);
+    }
+
+    // Ustvari majhen naslov
+    createLabel(x, y, txt, color) {
+        const hex = '#' + color.toString(16).padStart(6, '0');
+        this.scene.add.text(x, y, txt, {
+            fontSize: '11px', color: hex
+        }).setScrollFactor(0).setDepth(101);
+    }
+
+    createBarBg(x, y) {
+        return this.scene.add.rectangle(x, y, this.barWidth, this.barHeight, 0x2d3436)
+            .setOrigin(0, 0).setScrollFactor(0).setDepth(101);
+    }
+
+    createBar(x, y, color) {
+        return this.scene.add.rectangle(x, y, this.barWidth, this.barHeight, color)
+            .setOrigin(0, 0).setScrollFactor(0).setDepth(102);
+    }
+
+    createText(x, y, txt) {
+        return this.scene.add.text(x, y, txt, {
+            fontSize: '13px', color: '#ffffff', fontStyle: 'bold'
+        }).setScrollFactor(0).setDepth(103);
+    }
+
+    // ── Posodobitve ─────────────────────────────────────────────
+
+    updateHP(current, max) {
+        const ratio = Phaser.Math.Clamp(current / max, 0, 1);
+        this.hpBar.width = this.barWidth * ratio;
+        this.hpBar.setFillStyle(ratio > 0.5 ? 0x00b894 : ratio > 0.25 ? 0xfdcb6e : 0xe84393);
+        this.hpTxt.setText(Math.ceil(current) + '/' + max);
+    }
+
+    updateArmor(level) {
+        const ratio = Phaser.Math.Clamp(level / 5, 0, 1);
+        this.arBar.width = this.barWidth * ratio;
+        this.arTxt.setText('Nivo ' + level);
+    }
+
+    updateWeapon(level) {
+        this.wpTxt.setText('Nivo ' + level);
+    }
+
+    updateLevel(current, max) {
+        this.lvlTxt.setText(current + ' / ' + max);
+    }
+
+    updateTimer(ms) {
+        const total = Math.floor(ms / 1000);
+        const m = Math.floor(total / 60).toString().padStart(2, '0');
+        const s = (total % 60).toString().padStart(2, '0');
+        this.timeTxt.setText(m + ':' + s);
+    }
+
+    // Prikaži začasno sporočilo
+    showMessage(txt, duration = 2500) {
+        this.msgTxt.setText(txt);
+        this.scene.time.delayedCall(duration, () => {
+            this.msgTxt.setText('');
+        });
+    }
+
+    // Boss zdravje
+    showBossHP(scene, boss) {
+        if (this.bossBar) { this.bossBar.destroy(); this.bossBarBg.destroy(); this.bossTxt.destroy(); }
+        const W = scene.cameras.main.width;
+        this.bossBarBg = scene.add.rectangle(W / 2 - 100, 92, 200, 16, 0x2d3436)
+            .setOrigin(0, 0).setScrollFactor(0).setDepth(101);
+        this.bossBar = scene.add.rectangle(W / 2 - 100, 92, 200, 16, 0xff4757)
+            .setOrigin(0, 0).setScrollFactor(0).setDepth(102);
+        this.bossTxt = scene.add.text(W / 2, 90, '', {
+            fontSize: '11px', color: '#ff6b81', fontStyle: 'bold'
+        }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(103);
+    }
+
+    updateBossHP(current, max, name) {
+        if (!this.bossBar) return;
+        const ratio = Phaser.Math.Clamp(current / max, 0, 1);
+        this.bossBar.width = 200 * ratio;
+        if (this.bossTxt) this.bossTxt.setText(name + ': ' + Math.ceil(current) + '/' + max);
+    }
+
+    hideBossHP() {
+        if (this.bossBar) { this.bossBar.destroy(); this.bossBarBg.destroy(); this.bossTxt.destroy(); }
+        this.bossBar = null;
+    }
+}
+// =============================================================
+// player.js – Igralec: premikanje, statistike, napadi, nadgradnje
+// =============================================================
+
+class Player {
+    constructor(scene, x, y) {
+        this.scene = scene;
+
+        // ── Statistike ───────────────────────────────────────────
+        this.maxHP     = 100;
+        this.hp        = 100;
+        this.armor     = 0;      // 0–5, zmanjša poškodbe
+        this.weaponLvl = 1;      // 1–5
+        this.speed     = 160;
+        this.attackDmg = 25;
+        this.invincible = false; // kratka nepremagljivost po zadetku
+
+        // ── Fizični objekt ───────────────────────────────────────
+        this.sprite = scene.physics.add.sprite(x, y, 'player')
+            .setCollideWorldBounds(true)
+            .setDepth(10);
+        this.sprite.body.setSize(28, 28);
+
+        // ── Naklonski nadzor (žiroskop) ──────────────────────────
+        this.tiltX = 0;
+        this.tiltY = 0;
+
+        // ── Napad ────────────────────────────────────────────────
+        this.attackCooldown = 0;
+        this.attackRate     = 600; // ms med napadi
+
+        // ── Animacija ────────────────────────────────────────────
+        this.facing = 'right';
+    }
+
+    // ── Obdelava nagiba telefona ─────────────────────────────────
+    setTilt(beta, gamma) {
+        // beta  = nagib naprej/nazaj (-180 do 180)
+        // gamma = nagib levo/desno (-90 do 90)
+        this.tiltX = Phaser.Math.Clamp(gamma / 30, -1, 1); // levo/desno
+        this.tiltY = Phaser.Math.Clamp(beta  / 30, -1, 1); // gor/dol
+    }
+
+    // ── Posodobitev vsak okvir ───────────────────────────────────
+    update(delta, cursors) {
+        const body = this.sprite.body;
+        let vx = 0, vy = 0;
+
+        // Tipkovnica (za testiranje na računalniku)
+        if (cursors) {
+            if (cursors.left.isDown  || cursors.A?.isDown) vx = -1;
+            if (cursors.right.isDown || cursors.D?.isDown) vx =  1;
+            if (cursors.up.isDown    || cursors.W?.isDown) vy = -1;
+            if (cursors.down.isDown  || cursors.S?.isDown) vy =  1;
+        }
+
+        // Nagib – prevlada nad tipkovnico na mobilnih
+        if (Math.abs(this.tiltX) > 0.1 || Math.abs(this.tiltY) > 0.1) {
+            vx = this.tiltX;
+            vy = this.tiltY;
+        }
+
+        // Normalizacija diagonale
+        const len = Math.sqrt(vx * vx + vy * vy);
+        if (len > 0) { vx /= len; vy /= len; }
+
+        body.setVelocity(vx * this.speed, vy * this.speed);
+
+        // Obrni sprite
+        if (vx > 0.1)  { this.sprite.setFlipX(false); this.facing = 'right'; }
+        if (vx < -0.1) { this.sprite.setFlipX(true);  this.facing = 'left'; }
+
+        // Čakanje napada
+        if (this.attackCooldown > 0) this.attackCooldown -= delta;
+    }
+
+    // ── Napad ────────────────────────────────────────────────────
+    canAttack() { return this.attackCooldown <= 0; }
+
+    attack() {
+        this.attackCooldown = this.attackRate;
+        return this.attackDmg * (1 + (this.weaponLvl - 1) * 0.5);
+    }
+
+    // ── Prejemanje poškodbe ──────────────────────────────────────
+    takeDamage(amount) {
+        if (this.invincible) return;
+        const reduced = Math.max(1, amount - this.armor * 3);
+        this.hp = Math.max(0, this.hp - reduced);
+
+        // Kratka nepremagljivost (mig)
+        this.invincible = true;
+        this.scene.tweens.add({
+            targets: this.sprite,
+            alpha: { from: 0.3, to: 1 },
+            duration: 150,
+            repeat: 4,
+            onComplete: () => { this.invincible = false; this.sprite.alpha = 1; }
+        });
+
+        return reduced;
+    }
+
+    // ── Pobiranje predmetov ──────────────────────────────────────
+    pickupHealth(amount) {
+        this.hp = Math.min(this.maxHP, this.hp + amount);
+    }
+
+    pickupArmor() {
+        if (this.armor < 5) this.armor++;
+    }
+
+    pickupWeapon() {
+        if (this.weaponLvl < 5) {
+            this.weaponLvl++;
+            this.attackRate = Math.max(300, this.attackRate - 50);
+        }
+    }
+
+    isDead() { return this.hp <= 0; }
+
+    getPosition() { return { x: this.sprite.x, y: this.sprite.y }; }
+}
+// =============================================================
+// enemies.js – Sovražniki: navadni + 3 šefi (bossi)
+// =============================================================
+
+// ── Navadni sovražnik ────────────────────────────────────────
+class Enemy {
+    constructor(scene, x, y, type = 'normal') {
+        this.scene = scene;
+        this.type  = type;
+
+        // Statistike glede na tip
+        const stats = {
+            normal: { hp: 40,  speed: 60,  dmg: 8,  color: 0xe17055, size: 24 },
+            fast:   { hp: 25,  speed: 110, dmg: 5,  color: 0xfd79a8, size: 20 },
+            heavy:  { hp: 80,  speed: 35,  dmg: 18, color: 0x6c5ce7, size: 32 },
+        };
+        const s = stats[type] || stats.normal;
+
+        this.hp    = s.hp;
+        this.maxHP = s.hp;
+        this.speed = s.speed;
+        this.dmg   = s.dmg;
+
+        this.sprite = scene.physics.add.sprite(x, y, 'enemy_' + type)
+            .setDepth(9);
+        this.sprite.body.setSize(s.size, s.size);
+
+        // HP vrstica nad sovražnikom
+        this.hpBarBg = scene.add.rectangle(x, y - 20, 30, 5, 0x2d3436).setDepth(11);
+        this.hpBar   = scene.add.rectangle(x, y - 20, 30, 5, 0xe17055).setDepth(12);
+
+        this.alive = true;
+        this.moveCooldown = 0;
+    }
+
+    update(delta, playerSprite) {
+        if (!this.alive) return;
+
+        // Premakni se proti igralcu
+        const dx = playerSprite.x - this.sprite.x;
+        const dy = playerSprite.y - this.sprite.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < 300) {
+            const vx = (dx / dist) * this.speed;
+            const vy = (dy / dist) * this.speed;
+            this.sprite.body.setVelocity(vx, vy);
+        } else {
+            this.sprite.body.setVelocity(0, 0);
+        }
+
+        // Posodobi HP vrstico
+        const ratio = this.hp / this.maxHP;
+        this.hpBar.width = 30 * ratio;
+        this.hpBarBg.setPosition(this.sprite.x, this.sprite.y - 20);
+        this.hpBar.setPosition(this.sprite.x - 15 + (30 * ratio) / 2, this.sprite.y - 20);
+    }
+
+    takeDamage(amount) {
+        this.hp -= amount;
+        // Hitro utripanje
+        this.scene.tweens.add({
+            targets: this.sprite, alpha: 0.3,
+            duration: 80, yoyo: true
+        });
+        if (this.hp <= 0) this.die();
+    }
+
+    die() {
+        this.alive = false;
+        this.sprite.destroy();
+        this.hpBarBg.destroy();
+        this.hpBar.destroy();
+        // Učinek eksplozije
+        const emitter = this.scene.add.particles(this.sprite.x, this.sprite.y, 'particle', {
+            speed: { min: 50, max: 120 },
+            lifespan: 400,
+            quantity: 8,
+            scale: { start: 0.8, end: 0 },
+            tint: [0xe17055, 0xfdcb6e],
+        });
+        this.scene.time.delayedCall(500, () => emitter.destroy());
+    }
+}
+
+// ── Razred Boss ──────────────────────────────────────────────
+class Boss {
+    constructor(scene, x, y, level) {
+        this.scene  = scene;
+        this.level  = level;
+        this.alive  = true;
+        this.phase  = 1;
+
+        // Konfiguracija po nivojih
+        const cfg = {
+            1: { name: 'Počasna Želva Varuhinja', hp: 200, speed: 35,  dmg: 12, color: 0x00b894, size: 48, attackRate: 2000 },
+            2: { name: 'Jezni Bober Bojevnik',    hp: 350, speed: 65,  dmg: 20, color: 0xe17055, size: 44, attackRate: 1400 },
+            3: { name: 'Starodavni Duhovi Džungle',hp: 550, speed: 90,  dmg: 30, color: 0x6c5ce7, size: 52, attackRate: 900  },
+        };
+        const c = cfg[level];
+
+        this.name       = c.name;
+        this.hp         = c.hp;
+        this.maxHP      = c.hp;
+        this.speed      = c.speed;
+        this.baseDmg    = c.dmg;
+        this.attackRate = c.attackRate;
+        this.attackTimer = 0;
+
+        // Boss sprite
+        this.sprite = scene.physics.add.sprite(x, y, 'boss_' + level)
+            .setDepth(9).setScale(1.5);
+        this.sprite.body.setSize(c.size, c.size);
+
+        // Posebni napadalni vzorci
+        this.projectiles = scene.physics.add.group();
+        this.setupPatterns();
+    }
+
+    setupPatterns() {
+        if (this.level === 2) {
+            // Bober: naboji v smeri
+            this.chargeTimer = 0;
+        }
+        if (this.level === 3) {
+            // Duh: kroži in strelja krog nabojev
+            this.orbitAngle = 0;
+        }
+    }
+
+    update(delta, playerSprite) {
+        if (!this.alive) return;
+
+        const dx = playerSprite.x - this.sprite.x;
+        const dy = playerSprite.y - this.sprite.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // ── Faza 2: pod 50% HP ────────────────────────────────────
+        if (this.hp < this.maxHP * 0.5 && this.phase === 1) {
+            this.phase = 2;
+            this.speed     *= 1.4;
+            this.attackRate = Math.floor(this.attackRate * 0.65);
+            this.scene.ui?.showMessage('⚠️ ' + this.name + ' je postalo divje!', 2000);
+        }
+
+        // Premikanje
+        if (dist > 40) {
+            this.sprite.body.setVelocity(
+                (dx / dist) * this.speed,
+                (dy / dist) * this.speed
+            );
+        } else {
+            this.sprite.body.setVelocity(0, 0);
+        }
+
+        // Napad
+        this.attackTimer -= delta;
+        if (this.attackTimer <= 0) {
+            this.attackTimer = this.attackRate;
+            this.performAttack(playerSprite);
+        }
+
+        // Boss 3 kroži
+        if (this.level === 3) {
+            this.orbitAngle += delta * 0.002;
+        }
+
+        // Posodobi naboje
+        this.projectiles.getChildren().forEach(p => {
+            p.lifespan -= delta;
+            if (p.lifespan <= 0) p.destroy();
+        });
+    }
+
+    performAttack(target) {
+        if (this.level === 1) {
+            // Želva: zamrzne – udar v prostoru
+            this.scene.time.delayedCall(300, () => {
+                if (!this.alive) return;
+                this.spawnProjectile(target.x, target.y, 0, 0, 80, 0x00cec9, true);
+            });
+        }
+        else if (this.level === 2) {
+            // Bober: 3 naboji v pahljači
+            const ang = Math.atan2(target.y - this.sprite.y, target.x - this.sprite.x);
+            [-0.3, 0, 0.3].forEach(offset => {
+                const a = ang + offset;
+                this.spawnProjectile(this.sprite.x, this.sprite.y,
+                    Math.cos(a) * 220, Math.sin(a) * 220, 1800, 0xe17055);
+            });
+        }
+        else if (this.level === 3) {
+            // Duh: 8 nabojev v krog
+            for (let i = 0; i < 8; i++) {
+                const a = (Math.PI * 2 * i / 8) + this.orbitAngle;
+                this.spawnProjectile(this.sprite.x, this.sprite.y,
+                    Math.cos(a) * 180, Math.sin(a) * 180, 2200, 0xa29bfe);
+            }
+        }
+    }
+
+    spawnProjectile(x, y, vx, vy, lifespan, color, isAoe = false) {
+        const p = this.scene.add.circle(x, y, isAoe ? 30 : 8, color, 0.85)
+            .setDepth(8);
+        this.scene.physics.add.existing(p);
+        p.body.setVelocity(vx, vy);
+        p.lifespan = lifespan;
+        p.dmg      = this.baseDmg * (this.phase === 2 ? 1.3 : 1);
+        this.projectiles.add(p);
+
+        if (isAoe) {
+            this.scene.tweens.add({
+                targets: p, alpha: 0, duration: lifespan,
+                onComplete: () => p.destroy()
+            });
+        }
+    }
+
+    takeDamage(amount) {
+        this.hp -= amount;
+        this.scene.tweens.add({
+            targets: this.sprite, alpha: 0.4,
+            duration: 100, yoyo: true
+        });
+        if (this.hp <= 0) this.die();
+    }
+
+    die() {
+        this.alive = false;
+        this.projectiles.clear(true, true);
+        // Velika eksplozija
+        for (let i = 0; i < 3; i++) {
+            this.scene.time.delayedCall(i * 150, () => {
+                const dx = Phaser.Math.Between(-30, 30);
+                const dy = Phaser.Math.Between(-30, 30);
+                const boom = this.scene.add.circle(
+                    this.sprite.x + dx, this.sprite.y + dy, 20, 0xf9ca24
+                ).setDepth(20);
+                this.scene.tweens.add({
+                    targets: boom, alpha: 0, scale: 3,
+                    duration: 400, onComplete: () => boom.destroy()
+                });
+            });
+        }
+        this.scene.time.delayedCall(500, () => this.sprite.destroy());
+    }
+}
+// =============================================================
+// puzzles.js – Matematične uganke za odpiranje vrat
+// =============================================================
+
+// Zbirka ugank po nivojih (za 14+ letne)
+const PUZZLE_BANK = {
+    1: [
+        { question: '3 × 7 + 4 = ?',         answer: 25 },
+        { question: '(12 + 8) ÷ 4 = ?',       answer: 5  },
+        { question: '5² − 3 × 4 = ?',         answer: 13 },
+        { question: '18 − 5 × 2 + 3 = ?',     answer: 11 },
+        { question: 'Vzorec: 2, 4, 8, 16, ?', answer: 32 },
+    ],
+    2: [
+        { question: '(3 + 5)² ÷ 4 = ?',             answer: 16 },
+        { question: 'Vzorec: 1, 3, 6, 10, 15, ?',   answer: 21 },
+        { question: '7 × 8 − 4² = ?',               answer: 40 },
+        { question: '√144 + 3 × 4 = ?',             answer: 24 },
+        { question: '2³ + 3² − 5 = ?',              answer: 12 },
+    ],
+    3: [
+        { question: '5! ÷ 20 − 3 = ?',              answer: 3  },
+        { question: 'Vzorec: 1, 1, 2, 3, 5, 8, ?', answer: 13 },
+        { question: '(2⁴ + 4²) ÷ 4 = ?',           answer: 8  },
+        { question: '3³ − 2⁴ + √25 = ?',            answer: 16 },
+        { question: 'Vzorec: 100, 50, 25, 12.5, ?', answer: 6.25 }, // sprejme 6
+    ],
+};
+
+class PuzzleManager {
+    constructor(scene) {
+        this.scene       = scene;
+        this.active      = false;
+        this.currentGate = null;
+        this.overlay     = null;
+        this.onSolve     = null;
+    }
+
+    // Prikaži uganko za vrata
+    showPuzzle(gate, levelNum, onSolve) {
+        if (this.active) return;
+        this.active      = true;
+        this.currentGate = gate;
+        this.onSolve     = onSolve;
+
+        const bank = PUZZLE_BANK[levelNum] || PUZZLE_BANK[1];
+        const puzzle = Phaser.Utils.Array.GetRandom(bank);
+
+        this.buildOverlay(puzzle);
+    }
+
+    buildOverlay(puzzle) {
+        const scene = this.scene;
+        const W = scene.cameras.main.width;
+        const H = scene.cameras.main.height;
+
+        // Zatemnitev ozadja
+        this.overlay = scene.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.72)
+            .setScrollFactor(0).setDepth(200);
+
+        // Plošča
+        this.panel = scene.add.rectangle(W / 2, H / 2, 320, 240, 0x2d3436)
+            .setScrollFactor(0).setDepth(201).setStrokeStyle(3, 0xf9ca24);
+
+        // Naslov
+        scene.add.text(W / 2, H / 2 - 95, '🔒 Reši uganko za odprtje vrat!', {
+            fontSize: '14px', color: '#f9ca24', align: 'center', wordWrap: { width: 290 }
+        }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(202);
+
+        // Vprašanje
+        this.questionTxt = scene.add.text(W / 2, H / 2 - 50, puzzle.question, {
+            fontSize: '22px', color: '#ffffff', fontStyle: 'bold', align: 'center'
+        }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(202);
+
+        // Prikaz vnosa
+        this.inputStr = '';
+        this.inputTxt = scene.add.text(W / 2, H / 2 + 5, '[ _ ]', {
+            fontSize: '28px', color: '#74b9ff', fontStyle: 'bold'
+        }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(202);
+
+        // Sporočilo o napaki/uspehu
+        this.feedbackTxt = scene.add.text(W / 2, H / 2 + 45, '', {
+            fontSize: '15px', color: '#ff6b6b', align: 'center'
+        }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(202);
+
+        // Gumbi tipkovnice na zaslonu (mobilna)
+        this.buildKeypad(W, H, puzzle);
+
+        this.currentPuzzle = puzzle;
+    }
+
+    buildKeypad(W, H, puzzle) {
+        const scene = this.scene;
+        const startY = H / 2 + 70;
+        const keys = ['7','8','9','4','5','6','1','2','3','.','0','⌫'];
+        const btnW = 56, btnH = 38, gap = 6;
+        this.keyBtns = [];
+
+        keys.forEach((k, i) => {
+            const col = i % 3;
+            const row = Math.floor(i / 3);
+            const bx = W / 2 - btnW - gap + col * (btnW + gap);
+            const by = startY + row * (btnH + gap);
+
+            const btn = scene.add.rectangle(bx, by, btnW, btnH, 0x636e72)
+                .setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true });
+            const lbl = scene.add.text(bx, by, k, {
+                fontSize: '18px', color: '#fff', fontStyle: 'bold'
+            }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(203);
+
+            btn.on('pointerdown', () => this.pressKey(k, puzzle));
+            btn.on('pointerover', () => btn.setFillStyle(0x74b9ff));
+            btn.on('pointerout',  () => btn.setFillStyle(0x636e72));
+
+            this.keyBtns.push(btn, lbl);
+        });
+
+        // Gumb POTRDI
+        const okBtn = scene.add.rectangle(W / 2, startY + 4 * (btnH + gap), 180, btnH, 0x00b894)
+            .setScrollFactor(0).setDepth(202).setInteractive({ useHandCursor: true });
+        scene.add.text(W / 2, startY + 4 * (btnH + gap), '✔ Potrdi', {
+            fontSize: '17px', color: '#fff', fontStyle: 'bold'
+        }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(203);
+        okBtn.on('pointerdown', () => this.submitAnswer(puzzle));
+        this.keyBtns.push(okBtn);
+
+        // Tipkovnica računalnika
+        scene.input.keyboard.on('keydown', (ev) => {
+            if (!this.active) return;
+            if ((ev.key >= '0' && ev.key <= '9') || ev.key === '.') {
+                this.pressKey(ev.key, puzzle);
+            } else if (ev.key === 'Backspace') {
+                this.pressKey('⌫', puzzle);
+            } else if (ev.key === 'Enter') {
+                this.submitAnswer(puzzle);
+            }
+        });
+    }
+
+    pressKey(k, puzzle) {
+        if (k === '⌫') {
+            this.inputStr = this.inputStr.slice(0, -1);
+        } else {
+            if (this.inputStr.length < 8) this.inputStr += k;
+        }
+        this.inputTxt.setText(this.inputStr.length ? this.inputStr : '[ _ ]');
+    }
+
+    submitAnswer(puzzle) {
+        const val = parseFloat(this.inputStr);
+        // Sprejemamo zaokrožene in natančne odgovore
+        const correct = Math.abs(val - puzzle.answer) < 0.15;
+
+        if (correct) {
+            this.feedbackTxt.setColor('#55efc4').setText('✅ Pravilno! Vrata se odpirajo...');
+            this.scene.time.delayedCall(700, () => {
+                this.closeOverlay();
+                if (this.onSolve) this.onSolve(this.currentGate);
+            });
+        } else {
+            this.feedbackTxt.setColor('#ff6b6b').setText('❌ Narobe! Poskusi znova.');
+            this.inputStr = '';
+            this.inputTxt.setText('[ _ ]');
+            // Tresenje plošče
+            this.scene.tweens.add({
+                targets: this.panel,
+                x: { from: this.panel.x - 8, to: this.panel.x + 8 },
+                duration: 60, repeat: 3, yoyo: true
+            });
+        }
+    }
+
+    closeOverlay() {
+        this.active = false;
+        // Odstrani vse elemente overlay-a
+        const objs = [this.overlay, this.panel, this.questionTxt,
+                      this.inputTxt, this.feedbackTxt, ...this.keyBtns];
+        objs.forEach(o => { if (o && o.destroy) o.destroy(); });
+        this.scene.input.keyboard.removeAllListeners('keydown');
+    }
+}
+// =============================================================
+// main.js – Glavna igra: konfiguracija, scene, labirint, zanka
+// =============================================================
+
+const GAME_W = Math.min(window.innerWidth,  480);
+const GAME_H = Math.min(window.innerHeight, 800);
+const TILE   = 40; // velikost ploščice
+
+// ── Pomoč: naključna barva za okras ─────────────────────────
+function rndColor() {
+    const cols = [0x55efc4, 0xfdcb6e, 0xe17055, 0x74b9ff, 0xa29bfe, 0xfd79a8];
+    return cols[Phaser.Math.Between(0, cols.length - 1)];
+}
+
+// =============================================================
+// SCENA: Nalaganje sredstev (PreloadScene)
+// =============================================================
+class PreloadScene extends Phaser.Scene {
+    constructor() { super({ key: 'PreloadScene' }); }
+
+    preload() {
+        // Ustvarimo proceduralne teksture – brez zunanjih slik
+        this.createTextures();
+        this.createLoadingBar();
+    }
+
+    createLoadingBar() {
+        const W = this.cameras.main.width;
+        const H = this.cameras.main.height;
+        this.add.rectangle(W/2, H/2 - 20, 300, 20, 0x2d3436);
+        const bar = this.add.rectangle(W/2 - 148, H/2 - 20, 4, 16, 0xf9ca24).setOrigin(0, 0.5);
+        this.add.text(W/2, H/2 + 15, 'Nalaganje...', { fontSize: '16px', color: '#fff' }).setOrigin(0.5);
+
+        this.load.on('progress', v => { bar.width = 296 * v; });
+        this.load.on('complete', () => { this.scene.start('MenuScene'); });
+
+        // Majhen delay za efekt
+        this.load.image('dummy', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==');
+    }
+
+    createTextures() {
+        // ── Capybara (igralec) ──────────────────────────────────
+        const pg = this.make.graphics({ x: 0, y: 0, add: false });
+        // Telo
+        pg.fillStyle(0xb5835a); pg.fillEllipse(20, 22, 36, 28);
+        // Glava
+        pg.fillStyle(0xb5835a); pg.fillEllipse(32, 14, 22, 18);
+        // Oči
+        pg.fillStyle(0x000000); pg.fillCircle(36, 11, 3); pg.fillCircle(40, 11, 2);
+        pg.fillStyle(0xffffff); pg.fillCircle(37, 10, 1);
+        // Nos
+        pg.fillStyle(0x8B4513); pg.fillEllipse(42, 14, 7, 5);
+        // Noge
+        pg.fillStyle(0x8B6914);
+        pg.fillRect(6, 34, 8, 7); pg.fillRect(16, 34, 8, 7);
+        pg.fillRect(26, 34, 8, 7); pg.fillRect(36, 34, 8, 7);
+        // Uho
+        pg.fillStyle(0xd4a56a); pg.fillEllipse(30, 7, 8, 6);
+        pg.generateTexture('player', 48, 42);
+        pg.destroy();
+
+        // ── Sovražniki ─────────────────────────────────────────
+        this.makeEnemyTexture('enemy_normal', 0xe17055, 0xd63031, 32);
+        this.makeEnemyTexture('enemy_fast',   0xfd79a8, 0xe84393, 26);
+        this.makeEnemyTexture('enemy_heavy',  0x6c5ce7, 0x5f27cd, 40);
+
+        // ── Bossi ──────────────────────────────────────────────
+        this.makeBossTexture(1); // Želva
+        this.makeBossTexture(2); // Bober
+        this.makeBossTexture(3); // Duh
+
+        // ── Ploščice labirinta ──────────────────────────────────
+        this.makeWallTile();
+        this.makeFloorTile();
+
+        // ── Predmeti ────────────────────────────────────────────
+        this.makeItemTexture('item_health', 0x00b894);
+        this.makeItemTexture('item_armor',  0x0984e3);
+        this.makeItemTexture('item_weapon', 0xf9ca24);
+
+        // ── Delec ────────────────────────────────────────────────
+        const pp = this.make.graphics({ x: 0, y: 0, add: false });
+        pp.fillStyle(0xffffff); pp.fillCircle(4, 4, 4);
+        pp.generateTexture('particle', 8, 8);
+        pp.destroy();
+    }
+
+    makeEnemyTexture(key, bodyColor, eyeColor, size) {
+        const g = this.make.graphics({ x: 0, y: 0, add: false });
+        const h = size / 2;
+        g.fillStyle(bodyColor);
+        g.fillCircle(h, h, h - 2);
+        g.fillStyle(0xffffff);
+        g.fillCircle(h - 5, h - 4, 4);
+        g.fillCircle(h + 5, h - 4, 4);
+        g.fillStyle(eyeColor);
+        g.fillCircle(h - 5, h - 4, 2);
+        g.fillCircle(h + 5, h - 4, 2);
+        g.generateTexture(key, size, size);
+        g.destroy();
+    }
+
+    makeBossTexture(level) {
+        const colors = { 1: [0x00b894, 0x00cec9], 2: [0xe17055, 0xd63031], 3: [0x6c5ce7, 0xa29bfe] };
+        const shapes = { 1: 'shell', 2: 'square', 3: 'star' };
+        const [c1, c2] = colors[level];
+        const g = this.make.graphics({ x: 0, y: 0, add: false });
+
+        if (level === 1) { // Želva
+            g.fillStyle(c1); g.fillEllipse(24, 24, 44, 36);
+            g.fillStyle(c2); g.fillEllipse(24, 24, 30, 22);
+            g.lineStyle(2, 0x2d3436);
+            g.strokeRect(12, 16, 24, 16);
+            g.fillStyle(0x2d3436);
+            g.fillCircle(18, 22, 4); g.fillCircle(30, 22, 4);
+        } else if (level === 2) { // Bober
+            g.fillStyle(c1); g.fillRect(4, 8, 40, 32);
+            g.fillStyle(c2); g.fillRect(10, 2, 28, 14); // glava
+            g.fillStyle(0x2d3436); g.fillCircle(18, 8, 4); g.fillCircle(30, 8, 4);
+            g.fillStyle(0xffffff); g.fillRect(20, 18, 8, 6); // zobje
+            g.fillStyle(0x8B4513); g.fillRect(8, 36, 32, 10); // rep
+        } else { // Duh džungle
+            g.fillStyle(c1, 0.85); g.fillStar(24, 24, 5, 22, 12);
+            g.fillStyle(c2); g.fillCircle(24, 24, 10);
+            g.fillStyle(0xffd32a);
+            g.fillCircle(20, 22, 3); g.fillCircle(28, 22, 3);
+            // Aura
+            g.lineStyle(2, c2, 0.5); g.strokeCircle(24, 24, 20);
+        }
+        g.generateTexture('boss_' + level, 48, 48);
+        g.destroy();
+    }
+
+    makeWallTile() {
+        const g = this.make.graphics({ x: 0, y: 0, add: false });
+        g.fillStyle(0x34495e); g.fillRect(0, 0, TILE, TILE);
+        g.lineStyle(1, 0x2c3e50); g.strokeRect(0, 0, TILE, TILE);
+        g.fillStyle(0x3d566e); g.fillRect(2, 2, TILE - 4, TILE - 4);
+        g.generateTexture('wall', TILE, TILE);
+        g.destroy();
+    }
+
+    makeFloorTile() {
+        const g = this.make.graphics({ x: 0, y: 0, add: false });
+        g.fillStyle(0x2ecc71, 0.25); g.fillRect(0, 0, TILE, TILE);
+        g.lineStyle(1, 0x27ae60, 0.15); g.strokeRect(0, 0, TILE, TILE);
+        g.generateTexture('floor', TILE, TILE);
+        g.destroy();
+    }
+
+    makeItemTexture(key, color) {
+        const g = this.make.graphics({ x: 0, y: 0, add: false });
+        g.fillStyle(color, 0.9);
+        if (key === 'item_health')       { g.fillRect(6, 2, 8, 20); g.fillRect(2, 6, 20, 12); }
+        else if (key === 'item_armor')   { g.fillTriangle(12, 0, 24, 16, 0, 16); g.fillRect(4, 12, 16, 8); }
+        else                             { g.fillStar(12, 12, 5, 12, 5); }
+        g.generateTexture(key, 24, 24);
+        g.destroy();
+    }
+}
+
+// =============================================================
+// SCENA: Glavni meni (MenuScene)
+// =============================================================
+class MenuScene extends Phaser.Scene {
+    constructor() { super({ key: 'MenuScene' }); }
+
+    create() {
+        const W = this.cameras.main.width;
+        const H = this.cameras.main.height;
+
+        // Ozadje
+        this.add.rectangle(0, 0, W, H, 0x1a1a2e).setOrigin(0, 0);
+
+        // Dekorativni elementi
+        for (let i = 0; i < 20; i++) {
+            this.add.circle(
+                Phaser.Math.Between(0, W),
+                Phaser.Math.Between(0, H),
+                Phaser.Math.Between(2, 8),
+                rndColor(), 0.3
+            );
+        }
+
+        // Naslov
+        this.add.text(W / 2, 80, '🐾', { fontSize: '60px' }).setOrigin(0.5);
+        this.add.text(W / 2, 155, 'CAPYBARA', {
+            fontSize: '42px', color: '#f9ca24', fontStyle: 'bold',
+            stroke: '#000', strokeThickness: 6
+        }).setOrigin(0.5);
+        this.add.text(W / 2, 200, 'QUEST', {
+            fontSize: '36px', color: '#55efc4', fontStyle: 'bold',
+            stroke: '#000', strokeThickness: 5
+        }).setOrigin(0.5);
+
+        this.add.text(W / 2, 260, 'Reši svet kapibar! 🌿', {
+            fontSize: '16px', color: '#dfe6e9', align: 'center'
+        }).setOrigin(0.5);
+
+        // Navodila
+        const info = [
+            '📱 Nagni telefon za premikanje',
+            '⚔️  Pritisni NAPAD za boj',
+            '🔢 Reši matematike za vrata',
+            '🏆 Premagi 3 bose za zmago',
+        ];
+        info.forEach((line, i) => {
+            this.add.text(W / 2, 320 + i * 32, line, {
+                fontSize: '14px', color: '#b2bec3', align: 'center'
+            }).setOrigin(0.5);
+        });
+
+        // Gumb IGRAJ
+        const playBtn = this.add.rectangle(W / 2, H - 120, 220, 56, 0xf9ca24)
+            .setInteractive({ useHandCursor: true })
+            .setStrokeStyle(3, 0xfdcb6e);
+        this.add.text(W / 2, H - 120, '▶  IGRAJ', {
+            fontSize: '24px', color: '#2d3436', fontStyle: 'bold'
+        }).setOrigin(0.5);
+
+        playBtn.on('pointerover', () => playBtn.setFillStyle(0xfdcb6e));
+        playBtn.on('pointerout',  () => playBtn.setFillStyle(0xf9ca24));
+        playBtn.on('pointerdown', () => {
+            this.requestGyro();
+        });
+
+        // Tipka Enter
+        this.input.keyboard.once('keydown-ENTER', () => this.startGame());
+        this.input.keyboard.once('keydown-SPACE', () => this.startGame());
+
+        // Animacija lebdenja
+        this.tweens.add({
+            targets: this.children.list[2], // 🐾 emoji
+            y: { from: 80, to: 68 },
+            duration: 1200, repeat: -1, yoyo: true, ease: 'Sine.easeInOut'
+        });
+    }
+
+    requestGyro() {
+        if (typeof DeviceOrientationEvent !== 'undefined' &&
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+            DeviceOrientationEvent.requestPermission()
+                .then(state => { if (state === 'granted') this.startGame(); else this.startGame(); })
+                .catch(() => this.startGame());
+        } else {
+            this.startGame();
+        }
+    }
+
+    startGame() {
+        this.scene.start('GameScene', { level: 1, startTime: Date.now() });
+    }
+}
+
+// =============================================================
+// SCENA: Igra – labirint, boj, uganka (GameScene)
+// =============================================================
+class GameScene extends Phaser.Scene {
+    constructor() { super({ key: 'GameScene' }); }
+
+    init(data) {
+        this.currentLevel = data.level    || 1;
+        this.startTime    = data.startTime || Date.now();
+        this.playerHP     = data.playerHP  ?? 100;
+        this.playerArmor  = data.playerArmor ?? 0;
+        this.playerWeapon = data.playerWeapon ?? 1;
+    }
+
+    create() {
+        const W = this.cameras.main.width;
+        const H = this.cameras.main.height;
+
+        // ── Stanje scene ─────────────────────────────────────────
+        this.bossMode   = false;
+        this.bossFight  = null;
+        this.enemies    = [];
+        this.items      = [];
+        this.gates      = [];
+        this.attackBtns = [];
+        this.tiltX = 0; this.tiltY = 0;
+
+        // ── Ustvari labirint ──────────────────────────────────────
+        const maze = this.generateMaze(this.currentLevel);
+        this.renderMaze(maze);
+
+        // ── Igralec ───────────────────────────────────────────────
+        const startPos = this.findTile(maze, 'S');
+        this.player = new Player(this, startPos.x * TILE + TILE / 2, startPos.y * TILE + TILE / 2);
+        this.player.hp        = this.playerHP;
+        this.player.armor     = this.playerArmor;
+        this.player.weaponLvl = this.playerWeapon;
+
+        // ── Kamera sledi igralcu ──────────────────────────────────
+        this.cameras.main.startFollow(this.player.sprite, true, 0.1, 0.1);
+        this.cameras.main.setBackgroundColor('#0f3460');
+
+        // ── HUD ───────────────────────────────────────────────────
+        this.ui = new UIManager(this);
+        this.ui.updateLevel(this.currentLevel, 3);
+
+        // ── Ugankarski manager ────────────────────────────────────
+        this.puzzleManager = new PuzzleManager(this);
+
+        // ── Žiroskop ──────────────────────────────────────────────
+        this.setupGyro();
+
+        // ── Tipkovnica (debug) ────────────────────────────────────
+        this.cursors = this.input.keyboard.createCursorKeys();
+        this.cursors.A = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
+        this.cursors.D = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
+        this.cursors.W = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+        this.cursors.S = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
+
+        // ── Gumb NAPAD (mobilno) ──────────────────────────────────
+        this.createAttackButton();
+
+        // ── Ustvari sovražnike in predmete ────────────────────────
+        this.spawnEnemies(maze);
+        this.spawnItems(maze);
+        this.spawnGates(maze);
+
+        // ── Izhod ─────────────────────────────────────────────────
+        const exitPos = this.findTile(maze, 'E');
+        this.exitMarker = this.add.rectangle(
+            exitPos.x * TILE + TILE / 2, exitPos.y * TILE + TILE / 2,
+            TILE - 4, TILE - 4, 0xf9ca24, 0.8
+        ).setDepth(5);
+        this.exitPos = exitPos;
+
+        // Utripa izhod
+        this.tweens.add({
+            targets: this.exitMarker, alpha: { from: 0.4, to: 1 },
+            duration: 700, repeat: -1, yoyo: true
+        });
+
+        this.ui.showMessage('🗺️ Nivo ' + this.currentLevel + ' – Najdi izhod!', 2500);
+    }
+
+    // ── Žiroskop: nagib telefona ──────────────────────────────────
+    setupGyro() {
+        this.gyroEnabled = false;
+        if (window.DeviceOrientationEvent) {
+            window.addEventListener('deviceorientation', (ev) => {
+                if (ev.beta !== null) {
+                    this.gyroEnabled = true;
+                    this.player.setTilt(ev.beta, ev.gamma);
+                }
+            });
+        }
+    }
+
+    // ── Gumb za napad na zaslonu ──────────────────────────────────
+    createAttackButton() {
+        const W = this.cameras.main.width;
+        const H = this.cameras.main.height;
+
+        const btn = this.add.circle(W - 50, H - 60, 36, 0xe84393, 0.85)
+            .setScrollFactor(0).setDepth(110)
+            .setInteractive({ useHandCursor: true });
+        const lbl = this.add.text(W - 50, H - 60, '⚔️', { fontSize: '24px' })
+            .setOrigin(0.5).setScrollFactor(0).setDepth(111);
+
+        btn.on('pointerdown', () => this.doAttack());
+        btn.on('pointerover', () => btn.setFillStyle(0xfd79a8));
+        btn.on('pointerout',  () => btn.setFillStyle(0xe84393));
+
+        // Tipka za napad
+        this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+            .on('down', () => this.doAttack());
+
+        this.attackBtns.push(btn, lbl);
+    }
+
+    // ── Udar napada ───────────────────────────────────────────────
+    doAttack() {
+        if (!this.player.canAttack() || this.puzzleManager.active) return;
+        const dmg = this.player.attack();
+        const px = this.player.sprite.x;
+        const py = this.player.sprite.y;
+        const range = 60 + this.player.weaponLvl * 10;
+
+        // Vizualni efekt napada
+        const slash = this.add.circle(px, py, range * 0.6, 0xf9ca24, 0.5).setDepth(15);
+        this.tweens.add({ targets: slash, alpha: 0, scale: 1.5, duration: 250,
+            onComplete: () => slash.destroy() });
+
+        // Sovražniki v dosegu
+        [...this.enemies, this.bossFight].filter(Boolean).forEach(e => {
+            if (!e.alive) return;
+            const dx = e.sprite.x - px;
+            const dy = e.sprite.y - py;
+            if (Math.sqrt(dx * dx + dy * dy) < range) {
+                e.takeDamage(dmg);
+                if (e === this.bossFight) {
+                    this.ui.updateBossHP(e.hp, e.maxHP, e.name);
+                }
+            }
+        });
+
+        // Počisti mrtve
+        this.enemies = this.enemies.filter(e => e.alive);
+    }
+
+    // ── Generiranje labirinta (DFS algoritm) ──────────────────────
+    generateMaze(level) {
+        // Večji labirint za višje nivoje
+        const sizes = { 1: [15, 19], 2: [19, 23], 3: [23, 27] };
+        const [rows, cols] = sizes[level] || [15, 19];
+
+        // Inicializiraj mrežo z zidovi
+        let grid = Array.from({ length: rows }, (_, r) =>
+            Array.from({ length: cols }, (_, c) => 'W')
+        );
+
+        // DFS rezanje poti
+        const carve = (r, c) => {
+            grid[r][c] = '.';
+            const dirs = Phaser.Utils.Array.Shuffle([
+                [0, 2], [0, -2], [2, 0], [-2, 0]
+            ]);
+            dirs.forEach(([dr, dc]) => {
+                const nr = r + dr, nc = c + dc;
+                if (nr > 0 && nr < rows - 1 && nc > 0 && nc < cols - 1 && grid[nr][nc] === 'W') {
+                    grid[r + dr / 2][c + dc / 2] = '.';
+                    carve(nr, nc);
+                }
+            });
+        };
+        carve(1, 1);
+
+        // Postavi start in izhod
+        grid[1][1]           = 'S';
+        grid[rows - 2][cols - 2] = 'E';
+
+        // Postavi vrata (uganka) – na vmesnih točkah
+        let gateCount = level + 1;
+        for (let g = 0; g < gateCount; g++) {
+            let placed = false;
+            while (!placed) {
+                const r = Phaser.Math.Between(1, rows - 2);
+                const c = Phaser.Math.Between(1, cols - 2);
+                if (grid[r][c] === '.' &&
+                    !(r === 1 && c === 1) &&
+                    !(r === rows - 2 && c === cols - 2)) {
+                    grid[r][c] = 'G';
+                    placed = true;
+                }
+            }
+        }
+
+        // Postavi predmete
+        const itemTypes = ['H', 'A', 'P']; // Zdravje, Oklep, Orožje
+        for (let i = 0; i < 6 + level; i++) {
+            let placed = false;
+            while (!placed) {
+                const r = Phaser.Math.Between(1, rows - 2);
+                const c = Phaser.Math.Between(1, cols - 2);
+                if (grid[r][c] === '.') {
+                    grid[r][c] = itemTypes[i % 3];
+                    placed = true;
+                }
+            }
+        }
+
+        return grid;
+    }
+
+    findTile(maze, char) {
+        for (let r = 0; r < maze.length; r++)
+            for (let c = 0; c < maze[r].length; c++)
+                if (maze[r][c] === char) return { x: c, y: r };
+        return { x: 1, y: 1 };
+    }
+
+    // ── Risanje labirinta ─────────────────────────────────────────
+    renderMaze(maze) {
+        this.wallGroup = this.physics.add.staticGroup();
+        const rows = maze.length, cols = maze[0].length;
+
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const x = c * TILE + TILE / 2;
+                const y = r * TILE + TILE / 2;
+                const cell = maze[r][c];
+
+                if (cell === 'W') {
+                    const wall = this.wallGroup.create(x, y, 'wall').setDepth(2);
+                    wall.refreshBody();
+                } else {
+                    this.add.image(x, y, 'floor').setDepth(1);
+                }
+            }
+        }
+
+        // Nastavi meje sveta
+        this.physics.world.setBounds(0, 0, cols * TILE, rows * TILE);
+        this.cameras.main.setBounds(0, 0, cols * TILE, rows * TILE);
+        this.mazeData = maze;
+    }
+
+    // ── Spawn sovražnikov ─────────────────────────────────────────
+    spawnEnemies(maze) {
+        const types = ['normal', 'fast', 'heavy'];
+        const counts = { 1: 6, 2: 10, 3: 15 };
+        const count = counts[this.currentLevel];
+
+        for (let i = 0; i < count; i++) {
+            let placed = false;
+            let attempts = 0;
+            while (!placed && attempts < 100) {
+                attempts++;
+                const r = Phaser.Math.Between(3, maze.length - 3);
+                const c = Phaser.Math.Between(3, maze[0].length - 3);
+                if (maze[r][c] === '.') {
+                    const type = types[i % types.length];
+                    const e = new Enemy(this, c * TILE + TILE / 2, r * TILE + TILE / 2, type);
+                    this.physics.add.collider(e.sprite, this.wallGroup);
+                    this.enemies.push(e);
+                    placed = true;
+                }
+            }
+        }
+    }
+
+    // ── Spawn predmetov ────────────────────────────────────────────
+    spawnItems(maze) {
+        const rows = maze.length, cols = maze[0].length;
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const cell = maze[r][c];
+                if (!'HAP'.includes(cell)) continue;
+
+                const x = c * TILE + TILE / 2;
+                const y = r * TILE + TILE / 2;
+                const key = cell === 'H' ? 'item_health' : cell === 'A' ? 'item_armor' : 'item_weapon';
+                const spr = this.physics.add.sprite(x, y, key).setDepth(6);
+                spr.itemType = cell;
+
+                // Lebdenje
+                this.tweens.add({ targets: spr, y: y - 6, duration: 900, repeat: -1, yoyo: true });
+
+                this.physics.add.overlap(this.player.sprite, spr, () => {
+                    this.collectItem(spr);
+                });
+                this.items.push(spr);
+            }
+        }
+    }
+
+    collectItem(spr) {
+        if (!spr.active) return;
+        spr.destroy();
+        this.items = this.items.filter(i => i !== spr);
+
+        switch (spr.itemType) {
+            case 'H':
+                this.player.pickupHealth(30);
+                this.ui.showMessage('❤️ +30 Zdravje!');
+                break;
+            case 'A':
+                this.player.pickupArmor();
+                this.ui.showMessage('🛡️ Oklep nadgrajen!');
+                break;
+            case 'P':
+                this.player.pickupWeapon();
+                this.ui.showMessage('⚔️ Orožje nadgrajeno!');
+                break;
+        }
+    }
+
+    // ── Spawn vrat (uganka) ───────────────────────────────────────
+    spawnGates(maze) {
+        const rows = maze.length, cols = maze[0].length;
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                if (maze[r][c] !== 'G') continue;
+
+                const x = c * TILE + TILE / 2;
+                const y = r * TILE + TILE / 2;
+
+                const gate = this.physics.add.sprite(x, y, 'wall').setDepth(7)
+                    .setTint(0xff6b6b);
+                gate.body.setImmovable(true);
+                gate.solved = false;
+
+                const lbl = this.add.text(x, y - 22, '🔒', { fontSize: '16px' })
+                    .setOrigin(0.5).setDepth(8);
+                gate.label = lbl;
+
+                this.physics.add.collider(this.player.sprite, gate);
+
+                // Odpri z dotikom + reši uganko
+                this.physics.add.overlap(this.player.sprite, gate, () => {
+                    if (!gate.solved && !this.puzzleManager.active) {
+                        this.puzzleManager.showPuzzle(gate, this.currentLevel, (g) => {
+                            this.openGate(g);
+                        });
+                    }
+                });
+
+                this.gates.push(gate);
+            }
+        }
+    }
+
+    openGate(gate) {
+        gate.solved = true;
+        gate.destroy();
+        if (gate.label) gate.label.destroy();
+        this.ui.showMessage('✅ Vrata odprta!');
+    }
+
+    // ── Bossov boj ────────────────────────────────────────────────
+    startBossFight() {
+        if (this.bossMode) return;
+        this.bossMode = true;
+
+        const W = this.cameras.main.width;
+        const rows = this.mazeData.length, cols = this.mazeData[0].length;
+
+        // Postavi bossa v sredino labirinta
+        const bx = Math.floor(cols / 2) * TILE + TILE / 2;
+        const by = Math.floor(rows / 2) * TILE + TILE / 2;
+
+        this.bossFight = new Boss(this, bx, by, this.currentLevel);
+        this.physics.add.collider(this.bossFight.sprite, this.wallGroup);
+
+        this.ui.showBossHP(this, this.bossFight);
+        this.ui.updateBossHP(this.bossFight.hp, this.bossFight.maxHP, this.bossFight.name);
+        this.ui.showMessage('⚠️ BOSS: ' + this.bossFight.name + '!', 3000);
+
+        // Kamera stresa
+        this.cameras.main.shake(500, 0.015);
+    }
+
+    // ── Prehod na naslednji nivo ali zmaga ─────────────────────────
+    levelComplete() {
+        this.ui.hideBossHP();
+        this.ui.showMessage('🎉 Nivo ' + this.currentLevel + ' dokončan!', 2000);
+        this.cameras.main.flash(500, 255, 215, 0);
+
+        this.time.delayedCall(2200, () => {
+            if (this.currentLevel < 3) {
+                this.scene.start('GameScene', {
+                    level: this.currentLevel + 1,
+                    startTime: this.startTime,
+                    playerHP: Math.min(this.player.maxHP, this.player.hp + 30),
+                    playerArmor: this.player.armor,
+                    playerWeapon: this.player.weaponLvl,
+                });
+            } else {
+                this.scene.start('VictoryScene', {
+                    elapsed: Date.now() - this.startTime
+                });
+            }
+        });
+    }
+
+    // ── Smrt igralca ──────────────────────────────────────────────
+    gameOver() {
+        this.scene.start('GameOverScene');
+    }
+
+    // ── Glavna zanka ──────────────────────────────────────────────
+    update(time, delta) {
+        if (!this.player || this.puzzleManager.active) return;
+
+        // Posodobi igralca
+        this.player.update(delta, this.cursors);
+
+        // Kolizija z zidovi
+        this.physics.collide(this.player.sprite, this.wallGroup);
+
+        // Posodobi HUD
+        this.ui.updateHP(this.player.hp, this.player.maxHP);
+        this.ui.updateArmor(this.player.armor);
+        this.ui.updateWeapon(this.player.weaponLvl);
+        this.ui.updateTimer(Date.now() - this.startTime);
+
+        // Posodobi sovražnike
+        this.enemies.forEach(e => {
+            e.update(delta, this.player.sprite);
+            this.physics.collide(e.sprite, this.wallGroup);
+
+            // Stik sovražnik-igralec
+            if (e.alive) {
+                const dx = e.sprite.x - this.player.sprite.x;
+                const dy = e.sprite.y - this.player.sprite.y;
+                if (Math.sqrt(dx * dx + dy * dy) < 28) {
+                    const dmg = this.player.takeDamage(e.dmg * delta / 600);
+                }
+            }
+        });
+        this.enemies = this.enemies.filter(e => e.alive);
+
+        // Posodobi bossa
+        if (this.bossFight && this.bossFight.alive) {
+            this.bossFight.update(delta, this.player.sprite);
+            this.physics.collide(this.bossFight.sprite, this.wallGroup);
+
+            // Boss naboji vs. igralec
+            this.bossFight.projectiles.getChildren().forEach(p => {
+                const dx = p.x - this.player.sprite.x;
+                const dy = p.y - this.player.sprite.y;
+                if (Math.sqrt(dx * dx + dy * dy) < 24) {
+                    this.player.takeDamage(p.dmg * delta / 600);
+                }
+            });
+
+            // Boss dotik
+            const bdx = this.bossFight.sprite.x - this.player.sprite.x;
+            const bdy = this.bossFight.sprite.y - this.player.sprite.y;
+            if (Math.sqrt(bdx * bdx + bdy * bdy) < 40) {
+                this.player.takeDamage(this.bossFight.baseDmg * delta / 600);
+            }
+
+            // Boss mrtev
+            if (!this.bossFight.alive) {
+                this.bossFight = null;
+                this.levelComplete();
+            }
+        }
+
+        // Preverimo, ali je dosežen izhod
+        if (!this.bossMode) {
+            const ep = this.exitPos;
+            const ex = ep.x * TILE + TILE / 2;
+            const ey = ep.y * TILE + TILE / 2;
+            const dx = Math.abs(this.player.sprite.x - ex);
+            const dy = Math.abs(this.player.sprite.y - ey);
+
+            if (dx < TILE && dy < TILE) {
+                if (this.enemies.length === 0) {
+                    this.startBossFight();
+                } else {
+                    this.ui.showMessage('⚔️ Premagai vse sovražnike!', 1500);
+                }
+            }
+        }
+
+        // Smrt igralca
+        if (this.player.isDead()) {
+            this.gameOver();
+        }
+    }
+}
+
+// =============================================================
+// SCENA: Konec igre – poraz (GameOverScene)
+// =============================================================
+class GameOverScene extends Phaser.Scene {
+    constructor() { super({ key: 'GameOverScene' }); }
+
+    create() {
+        const W = this.cameras.main.width;
+        const H = this.cameras.main.height;
+
+        this.add.rectangle(0, 0, W, H, 0x1a1a2e).setOrigin(0, 0);
+        this.add.text(W / 2, H / 2 - 100, '💀', { fontSize: '70px' }).setOrigin(0.5);
+        this.add.text(W / 2, H / 2 - 20, 'IGRA KONČANA', {
+            fontSize: '32px', color: '#e84393', fontStyle: 'bold',
+            stroke: '#000', strokeThickness: 5
+        }).setOrigin(0.5);
+        this.add.text(W / 2, H / 2 + 30, 'Capybara je padla...', {
+            fontSize: '18px', color: '#b2bec3'
+        }).setOrigin(0.5);
+
+        const btn = this.add.rectangle(W / 2, H / 2 + 100, 200, 50, 0xf9ca24)
+            .setInteractive({ useHandCursor: true });
+        this.add.text(W / 2, H / 2 + 100, '🔄 Poskusi znova', {
+            fontSize: '18px', color: '#2d3436', fontStyle: 'bold'
+        }).setOrigin(0.5);
+
+        btn.on('pointerdown', () => {
+            this.scene.start('MenuScene');
+        });
+    }
+}
+
+// =============================================================
+// SCENA: Zmaga (VictoryScene)
+// =============================================================
+class VictoryScene extends Phaser.Scene {
+    constructor() { super({ key: 'VictoryScene' }); }
+
+    init(data) {
+        this.elapsed = data.elapsed || 0;
+    }
+
+    create() {
+        const W = this.cameras.main.width;
+        const H = this.cameras.main.height;
+
+        // Barvno ozadje
+        this.add.rectangle(0, 0, W, H, 0x0f3460).setOrigin(0, 0);
+
+        // Zvezdice / delci
+        for (let i = 0; i < 30; i++) {
+            const star = this.add.circle(
+                Phaser.Math.Between(0, W),
+                Phaser.Math.Between(0, H),
+                Phaser.Math.Between(2, 5),
+                rndColor()
+            );
+            this.tweens.add({
+                targets: star, alpha: { from: 0.2, to: 1 },
+                duration: Phaser.Math.Between(600, 1400),
+                repeat: -1, yoyo: true,
+                delay: Phaser.Math.Between(0, 1000)
+            });
+        }
+
+        // Naslov
+        this.add.text(W / 2, 60, '🏆', { fontSize: '70px' }).setOrigin(0.5);
+        this.add.text(W / 2, 140, 'ZMAGA!', {
+            fontSize: '48px', color: '#f9ca24', fontStyle: 'bold',
+            stroke: '#000', strokeThickness: 7
+        }).setOrigin(0.5);
+
+        // Glavno sporočilo
+        this.add.text(W / 2, 215, 'Svet Kapibar je rešen!', {
+            fontSize: '20px', color: '#55efc4', fontStyle: 'bold',
+            stroke: '#000', strokeThickness: 4
+        }).setOrigin(0.5);
+
+        // Čas
+        const total = Math.floor(this.elapsed / 1000);
+        const m = Math.floor(total / 60).toString().padStart(2, '0');
+        const s = (total % 60).toString().padStart(2, '0');
+
+        this.add.text(W / 2, 270, '⏱️ Skupni čas: ' + m + ':' + s, {
+            fontSize: '22px', color: '#fdcb6e', fontStyle: 'bold'
+        }).setOrigin(0.5);
+
+        // Ocena
+        let rating = total < 300 ? '⭐⭐⭐' : total < 480 ? '⭐⭐' : '⭐';
+        let ratingTxt = total < 300 ? 'Izjemno!' : total < 480 ? 'Dobro!' : 'Kapybara živi!';
+        this.add.text(W / 2, 315, rating + '  ' + ratingTxt, {
+            fontSize: '20px', color: '#fff'
+        }).setOrigin(0.5);
+
+        // Capybara emojiji
+        const capy = this.add.text(W / 2, 380, '🐾🐾🐾', { fontSize: '40px' }).setOrigin(0.5);
+        this.tweens.add({ targets: capy, scale: 1.2, duration: 600, repeat: -1, yoyo: true });
+
+        // Zahvala
+        this.add.text(W / 2, 450, '"Capybara World Saved!"', {
+            fontSize: '16px', color: '#a29bfe', fontStyle: 'italic',
+            stroke: '#000', strokeThickness: 3
+        }).setOrigin(0.5);
+
+        // Gumb IGRAJ ZNOVA
+        const btn = this.add.rectangle(W / 2, H - 90, 220, 54, 0xf9ca24)
+            .setInteractive({ useHandCursor: true });
+        this.add.text(W / 2, H - 90, '🔄 Igraj znova', {
+            fontSize: '20px', color: '#2d3436', fontStyle: 'bold'
+        }).setOrigin(0.5);
+
+        btn.on('pointerover', () => btn.setFillStyle(0xfdcb6e));
+        btn.on('pointerout',  () => btn.setFillStyle(0xf9ca24));
+        btn.on('pointerdown', () => this.scene.start('MenuScene'));
+
+        // Konfeti animacija
+        this.time.addEvent({
+            delay: 300, repeat: 20, callback: () => {
+                const conf = this.add.circle(
+                    Phaser.Math.Between(0, W), -10,
+                    Phaser.Math.Between(4, 10), rndColor()
+                );
+                this.tweens.add({
+                    targets: conf,
+                    y: H + 20, x: conf.x + Phaser.Math.Between(-60, 60),
+                    duration: Phaser.Math.Between(1500, 2500),
+                    onComplete: () => conf.destroy()
+                });
+            }
+        });
+    }
+}
+
+// =============================================================
+// Konfiguracija Phaser 3
+// =============================================================
+const config = {
+    type: Phaser.AUTO,
+    width:  GAME_W,
+    height: GAME_H,
+    backgroundColor: '#1a1a2e',
+    parent: 'game-container',
+    physics: {
+        default: 'arcade',
+        arcade: { gravity: { y: 0 }, debug: false }
+    },
+    scene: [PreloadScene, MenuScene, GameScene, GameOverScene, VictoryScene],
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
+};
+
+// Zaženi igro
+const game = new Phaser.Game(config);
+</script></body></html>
